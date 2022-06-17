@@ -52,6 +52,7 @@ def play_from_query(ctx, msg):
 
     # making requests in russian and ukrainian work using transliteration
     for i in msg:
+        # .isascii()
         if i in 'абвгдеёжзийклмнопрстуфхцчшщъыьэюяіїє':
             search_request = urllib.parse.quote(search_request, encoding='utf-8')
             break
