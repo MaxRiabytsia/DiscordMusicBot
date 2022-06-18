@@ -123,6 +123,121 @@ def play_url(voice, song):
     voice.is_playing()
 
 
+@client.command(help="displays a queue in chat")
+async def queue(ctx):
+    if queue:
+        string_queue = "Queue:\n"
+        for index, song in enumerate(queue):
+            string_queue += f'{index + 1}. {song.title}\n'
+
+        if len(string_queue) >= 2000:
+            # splitting the string into blocks under 2000 chars in length
+            string_queue = fit_text_in_msg(string_queue)
+            for text_block in string_queue.split('@'):
+                await ctx.send(text_block)
+        else:
+            await ctx.send(string_queue)
+    else:
+        await ctx.send("There is nothing in the queue")
+
+
+@client.command(help="adds video at position n to the favorite")
+async def fav(ctx, n=0):
+    id = ctx.message.guild.id
+    voice = get(client.voice_clients, guild=ctx.guild)
+
+    # position is not specified, so we take the song that is playing right now
+    if n == 0 and voice.is_playing():
+        song = song_now
+    # position is specified
+    elif int(n) <= len(queue):
+        song = queue[n - 1]
+    else:
+        await ctx.send(f'Length of the queue is only {len(queue)}, therefore there is no position {n}')
+        return
+
+    df = pd.read_csv('favs.csv')
+    if song.title not in df.title:
+        df.loc[df.shape[0]] = pd.Series({"url": song.url, "name": song.title})
+        df.to_csv('favs.csv', index=False)
+    else:
+        await ctx.send(f'The {song.title} is already in the favorites')
+
+
+@client.command(help="shows the content of the 'favorite'")
+async def favs(ctx):
+    # getting id of a channel the command was called in
+    id = ctx.message.guild.id
+
+    # getting the string that contains favorites
+    df = pd.read_csv('favs.csv')
+    string_favs = "Favorites:\n"
+    for i, song in df.iterrows():
+        string_favs += f'{i + 1}. {song.title}\n'
+
+    # splitting the string into blocks under 2000 chars in length
+    string_favs = fit_text_in_msg(string_favs)
+    for text_block in string_favs.split('@'):
+        await ctx.send(text_block)
+
+
+@client.command(help="removes the video at specified position from the favorites")
+async def removef(ctx, n):
+    # getting id of a channel the command was called in
+    id = ctx.message.guild.id
+    n = int(n)
+
+    # reading the favorites file
+    df = pd.read_csv('favs.csv')
+    if df.shape[0] >= n >= 1:
+        # modifying the favorites file
+        await ctx.send(f"Good decison! I don't like {df.loc[n - 1].title} too!")
+        df.drop(index=n - 1)
+    else:
+        await ctx.send(f'Length of the favorites is only {df.shape[0]}, therefore there is no position {n}')
+
+
+@client.command(help="moves the video at the position 'first number' to the position 'second number' in the queue")
+async def move(ctx, n=len(queue), k=1):
+    n = int(n)
+    k = int(k)
+    bigger = n if n >= k else k
+    smaller = k if n >= k else n
+    flag = False
+
+    if n == k:
+        await ctx.send(
+            f"Are you drunk?! You do know that moving song from position {n} to position {k} is pointless, don't you?")
+    elif len(queue) >= bigger and smaller >= 0:
+        queue.insert(k - 1, queue.pop(n - 1))
+        flag = True
+    else:
+        await ctx.send(f'Length of the queue is only {len(queue)}, therefore there is no position {bigger}')
+
+    if flag:
+        if smaller == k or k == 1:
+            await ctx.send(
+                f"I'm totally with you on that one! We should listen to {queue[k - 1][0]} earlier!")
+        else:
+            await ctx.send(f"I agree with you! We don't need to rush with listening {queue[k - 1][0]}!")
+
+
+@client.command(help="plays video instantly")
+async def instant(ctx, request):
+    await play(ctx, request)
+    if queue:
+        await move(ctx)
+        await skip(ctx)
+
+
+# command to play video after the one that's playing now
+@client.command(help="plays video after the one that's playing now")
+async def next(ctx, request):
+    await play(ctx, request)
+    if queue:
+        await move(ctx)
+
+
 @client.command(help="displays what video is playing right now")
 async def np(ctx):
     voice = get(client.voice_clients, guild=ctx.guild)
@@ -176,6 +291,43 @@ async def skip(ctx):
         await ctx.send('Skipping...')
     else:
         await ctx.send("Nothing is playing")
+
+
+@client.command(help="replays the video that is playing right now")
+async def replay(ctx):
+    voice = get(client.voice_clients, guild=ctx.guild)
+    voice.stop()
+    play_url(voice, song_now)
+    await ctx.send(f"Let's listen to {song_now.title} again!")
+
+
+@client.command(help="plays winning songs")
+async def champ(ctx):
+    df = pd.read_csv("champ.csv")
+    url = df.sample(1).iloc[0].url
+    await instant(ctx, url)
+
+
+def fit_text_in_msg(string):
+    step = 1800
+    tmp_list = list(string)
+    index = 1
+
+    for i in string[step:len(tmp_list):step]:
+        index += step - 1
+        if index > len(tmp_list):
+            return ''.join(tmp_list)
+
+        while i != '\n':
+            index += 1
+            if index >= len(tmp_list):
+                return ''.join(tmp_list)
+            i = tmp_list[index]
+
+        tmp_list.pop(index)
+        tmp_list.insert(index, '@')
+
+    return ''.join(tmp_list)
 
 
 def main():
