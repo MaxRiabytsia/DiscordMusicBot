@@ -15,7 +15,7 @@ from constants import *
 
 
 client = commands.Bot(command_prefix=['!', '~'])
-queue = []
+song_queue = []
 song_now = None
 
 
@@ -24,8 +24,8 @@ song_now = None
 @tasks.loop(seconds=3.0, count=None)
 async def play_from_queue():
     voice = get(client.voice_clients)
-    if queue and not voice.is_playing() and not voice.is_paused():
-        play_url(voice, queue.pop(0))
+    if song_queue and not voice.is_playing() and not voice.is_paused():
+        play_url(voice, song_queue.pop(0))
 
 
 # check if bot is ready
@@ -46,7 +46,7 @@ def play_from_favs(msg):
     df = pd.read_csv('favs.csv')
     sample = df.sample(n)
     for i, song in sample.iterrows():
-        queue.append(Song(song.url, song.title))
+        song_queue.append(Song(song.url, song.title))
 
 
 def play_from_query(ctx, msg):
@@ -59,15 +59,22 @@ def play_from_query(ctx, msg):
 
     # getting the html of search result
     url = "https://www.youtube.com/results?search_query=" + search_request.replace("'", "")
-    request = requests.get(url, "html.parser")
-    page = BeautifulSoup(request.content, 'html.parser')
+    # getting the html of search result
+    html = urllib.request.urlopen(url)
 
     # finding all the videos
-    first_video = page.find("a", {"class": "yt-simple-endpoint style-scope ytd-video-renderer"})["href"]
+    video_ids = findall(r"watch\?v=(\S{11})", html.read().decode())
 
     # composing the url of the first video
-    url = "https://www.youtube.com" + first_video
-    await ctx.send(url)
+    url = "https://www.youtube.com/watch?v=" + video_ids[0]
+
+    # request = requests.get(url, "html.parser")
+    # page = BeautifulSoup(request.content, 'html.parser')
+    # print(page.prettify())
+    # # finding all the videos
+    # first_video = page.find("a", {"id": "video-title"})["href"]
+    # # composing the url of the first video
+    # url = "https://www.youtube.com" + first_video
 
     return url
 
@@ -97,10 +104,10 @@ async def play(ctx, request="fav"):
     # playing top video from YT found by given request
     else:
         url = play_from_query(ctx, msg)
+        await ctx.send(url)
 
     # playing the audio or adding it to the queue
     song = Song(url)
-    queue.append(song)
     if not voice.is_playing():
         play_url(voice, song)
         await ctx.send("Bot is playing!")
@@ -125,9 +132,9 @@ def play_url(voice, song):
 
 @client.command(help="displays a queue in chat")
 async def queue(ctx):
-    if queue:
+    if song_queue:
         string_queue = "Queue:\n"
-        for index, song in enumerate(queue):
+        for index, song in enumerate(song_queue):
             string_queue += f'{index + 1}. {song.title}\n'
 
         if len(string_queue) >= 2000:
@@ -150,15 +157,15 @@ async def fav(ctx, n=0):
     if n == 0 and voice.is_playing():
         song = song_now
     # position is specified
-    elif int(n) <= len(queue):
-        song = queue[n - 1]
+    elif int(n) <= len(song_queue):
+        song = song_queue[n - 1]
     else:
-        await ctx.send(f'Length of the queue is only {len(queue)}, therefore there is no position {n}')
+        await ctx.send(f'Length of the queue is only {len(song_queue)}, therefore there is no position {n}')
         return
 
     df = pd.read_csv('favs.csv')
     if song.title not in df.title:
-        df.loc[df.shape[0]] = pd.Series({"url": song.url, "name": song.title})
+        df.loc[df.shape[0]] = pd.Series({"url": song.url, "title": song.title})
         df.to_csv('favs.csv', index=False)
     else:
         await ctx.send(f'The {song.title} is already in the favorites')
@@ -192,13 +199,14 @@ async def removef(ctx, n):
     if df.shape[0] >= n >= 1:
         # modifying the favorites file
         await ctx.send(f"Good decison! I don't like {df.loc[n - 1].title} too!")
-        df.drop(index=n - 1)
+        df = df.drop([n - 1])
+        df.to_csv("favs.csv")
     else:
         await ctx.send(f'Length of the favorites is only {df.shape[0]}, therefore there is no position {n}')
 
 
 @client.command(help="moves the video at the position 'first number' to the position 'second number' in the queue")
-async def move(ctx, n=len(queue), k=1):
+async def move(ctx, n=len(song_queue), k=1):
     n = int(n)
     k = int(k)
     bigger = n if n >= k else k
@@ -208,24 +216,35 @@ async def move(ctx, n=len(queue), k=1):
     if n == k:
         await ctx.send(
             f"Are you drunk?! You do know that moving song from position {n} to position {k} is pointless, don't you?")
-    elif len(queue) >= bigger and smaller >= 0:
-        queue.insert(k - 1, queue.pop(n - 1))
+    elif len(song_queue) >= bigger and smaller >= 0:
+        song = song_queue.pop(n - 1)
+        song_queue.insert(k - 1, song)
         flag = True
     else:
-        await ctx.send(f'Length of the queue is only {len(queue)}, therefore there is no position {bigger}')
+        await ctx.send(f'Length of the queue is only {len(song_queue)}, therefore there is no position {bigger}')
 
     if flag:
         if smaller == k or k == 1:
             await ctx.send(
-                f"I'm totally with you on that one! We should listen to {queue[k - 1][0]} earlier!")
+                f"I'm totally with you on that one! We should listen to {song_queue[k - 1].title} earlier!")
         else:
-            await ctx.send(f"I agree with you! We don't need to rush with listening {queue[k - 1][0]}!")
+            await ctx.send(f"I agree with you! We don't need to rush with listening {song_queue[k - 1].title}!")
+
+
+@client.command(help="removes the video at specified position from the queue")
+async def remove(ctx, n=len(song_queue)):
+    n = int(n)
+    if len(song_queue) >= n >= 0:
+        await ctx.send(f"Good decison! I don't like {song_queue[n - 1].title} too!")
+        song_queue.pop(n - 1)
+    else:
+        await ctx.send(f'Length of the queue is only {len(song_queue)}, therefore there is no position {n}')
 
 
 @client.command(help="plays video instantly")
 async def instant(ctx, request):
     await play(ctx, request)
-    if queue:
+    if song_queue:
         await move(ctx)
         await skip(ctx)
 
@@ -234,7 +253,7 @@ async def instant(ctx, request):
 @client.command(help="plays video after the one that's playing now")
 async def next(ctx, request):
     await play(ctx, request)
-    if queue:
+    if song_queue:
         await move(ctx)
 
 
@@ -247,8 +266,8 @@ async def np(ctx):
 
 @client.command(help="Shuffles the queue")
 async def shuffle(ctx):
-    if queue:
-        random.shuffle(queue)
+    if song_queue:
+        random.shuffle(song_queue)
         await ctx.send('The queue is shuffled')
     else:
         await ctx.send("There is nothing in the queue")
@@ -256,8 +275,8 @@ async def shuffle(ctx):
 
 @client.command(help="Clears the queue")
 async def clear(ctx):
-    if queue:
-        queue.clear()
+    if song_queue:
+        song_queue.clear()
         await ctx.send("The queue is cleared")
     else:
         await ctx.send("There is nothing in the queue")
