@@ -34,56 +34,25 @@ async def on_ready():
     print('Bot is online')
 
 
-def play_from_favs(msg):
+def play_from_favs(request):
     # finding n
-    n = findall(r'\d{1,3}', msg)
+    n = findall(r'\d{1,3}', request)
     if not n:
         n = 15
     else:
         n = int(n[0])
 
     # adding to the queue n random songs from fav
-    df = pd.read_csv('favs.csv')
+    df = pd.read_csv('data/favs.csv')
     sample = df.sample(n)
     for i, song in sample.iterrows():
         song_queue.append(Song(song.url, song.title))
-
-
-def play_from_query(ctx, msg):
-    # composing url
-    search_request = msg.lower().replace(' ', '+').replace('–', '-').replace('\n', '')
-
-    # making requests in russian and ukrainian work using transliteration
-    if not msg.isascii():
-        search_request = urllib.parse.quote(search_request, encoding='utf-8')
-
-    # getting the html of search result
-    url = "https://www.youtube.com/results?search_query=" + search_request.replace("'", "")
-    # getting the html of search result
-    html = urllib.request.urlopen(url)
-
-    # finding all the videos
-    video_ids = findall(r"watch\?v=(\S{11})", html.read().decode())
-
-    # composing the url of the first video
-    url = "https://www.youtube.com/watch?v=" + video_ids[0]
-
-    # request = requests.get(url, "html.parser")
-    # page = BeautifulSoup(request.content, 'html.parser')
-    # print(page.prettify())
-    # # finding all the videos
-    # first_video = page.find("a", {"id": "video-title"})["href"]
-    # # composing the url of the first video
-    # url = "https://www.youtube.com" + first_video
-
-    return url
 
 
 @client.command(help="connects bot to a voice channel if it's not and plays the url")
 async def play(ctx, request="fav"):
     channel = ctx.message.author.voice.channel
     voice = get(client.voice_clients, guild=ctx.guild)
-    id = ctx.message.guild.id
 
     # connecting to the voice channel
     if voice and voice.is_connected():
@@ -91,28 +60,20 @@ async def play(ctx, request="fav"):
     else:
         voice = await channel.connect()
 
-    msg = ctx.message.content
-    msg = msg[msg.index('!') + 6::]
-
     # playing url
     if validators.url(request):
-        url = request
+        song = Song(request)
     # playing n random songs from fav
     elif request.startswith('fav'):
-        play_from_favs(msg)
+        play_from_favs(request)
         return
     # playing top video from YT found by given request
     else:
-        url = play_from_query(ctx, msg)
-        await ctx.send(url)
+        song = Song.from_query(request)
+        await ctx.send(song.url)
 
-    # playing the audio or adding it to the queue
-    song = Song(url)
-    if not voice.is_playing():
-        play_url(voice, song)
-        await ctx.send("Bot is playing!")
-    else:
-        await ctx.send("Added to the queue!")
+    # adding the audio to the queue
+    song_queue.append(song)
 
 
 def play_url(voice, song):
@@ -163,7 +124,7 @@ async def fav(ctx, n=0):
         await ctx.send(f'Length of the queue is only {len(song_queue)}, therefore there is no position {n}')
         return
 
-    df = pd.read_csv('favs.csv')
+    df = pd.read_csv('data/favs.csv')
     if song.title not in df.title:
         df.loc[df.shape[0]] = pd.Series({"url": song.url, "title": song.title})
         df.to_csv('favs.csv', index=False)
@@ -177,7 +138,7 @@ async def favs(ctx):
     id = ctx.message.guild.id
 
     # getting the string that contains favorites
-    df = pd.read_csv('favs.csv')
+    df = pd.read_csv('data/favs.csv')
     string_favs = "Favorites:\n"
     for i, song in df.iterrows():
         string_favs += f'{i + 1}. {song.title}\n'
@@ -195,7 +156,7 @@ async def removef(ctx, n):
     n = int(n)
 
     # reading the favorites file
-    df = pd.read_csv('favs.csv')
+    df = pd.read_csv('data/favs.csv')
     if df.shape[0] >= n >= 1:
         # modifying the favorites file
         await ctx.send(f"Good decison! I don't like {df.loc[n - 1].title} too!")
@@ -249,7 +210,6 @@ async def instant(ctx, request):
         await skip(ctx)
 
 
-# command to play video after the one that's playing now
 @client.command(help="plays video after the one that's playing now")
 async def next(ctx, request):
     await play(ctx, request)
@@ -322,7 +282,7 @@ async def replay(ctx):
 
 @client.command(help="plays winning songs")
 async def champ(ctx):
-    df = pd.read_csv("champ.csv")
+    df = pd.read_csv("data/champ.csv")
     url = df.sample(1).iloc[0].url
     await instant(ctx, url)
 
