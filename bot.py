@@ -2,20 +2,19 @@ from discord.ext import commands, tasks
 from discord.utils import get
 from discord import FFmpegPCMAudio
 from youtube_dl import YoutubeDL
-import random
-import requests
-import urllib.request
-from bs4 import BeautifulSoup
 from re import findall
 import pandas as pd
 import validators
+import logging
 
 from Song import Song
+from SongQueue import SongQueue
 from constants import *
 
 
+logging.basicConfig(filename='other/bot.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
 client = commands.Bot(command_prefix=['!', '~'])
-song_queue = []
+song_queue = SongQueue()
 song_now = None
 
 
@@ -24,11 +23,11 @@ song_now = None
 @tasks.loop(seconds=3.0, count=None)
 async def play_from_queue():
     voice = get(client.voice_clients)
-    if song_queue and not voice.is_playing() and not voice.is_paused():
-        play_url(voice, song_queue.pop(0))
+    if len(song_queue) != 0 and not voice.is_playing() and not voice.is_paused():
+        play_url(voice, song_queue.dequeue())
 
 
-# check if bot is ready
+# check if bot is active
 @client.event
 async def on_ready():
     print('Bot is online')
@@ -45,8 +44,8 @@ def play_from_favs(request):
     # adding to the queue n random songs from fav
     df = pd.read_csv('data/favs.csv')
     sample = df.sample(n)
-    for i, song in sample.iterrows():
-        song_queue.append(Song(song.url, song.title))
+    for i, row in sample.iterrows():
+        song_queue.enqueue(Song(row.url, row.title))
 
 
 @client.command(help="connects bot to a voice channel if it's not and plays the url")
@@ -63,17 +62,20 @@ async def play(ctx, request="fav"):
     # playing url
     if validators.url(request):
         song = Song(request)
-    # playing n random songs from fav
+    # playing n random songs from favorites
     elif request.startswith('fav'):
         play_from_favs(request)
+        await ctx.send("Adding music from favorites to the queue")
         return
-    # playing top video from YT found by given request
+    # playing top video from YT found by given query
     else:
-        song = Song.from_query(request)
+        msg = ctx.message.content
+        msg = msg[msg.index('!') + 6::]
+        song = Song.from_query(msg)
         await ctx.send(song.url)
 
     # adding the audio to the queue
-    song_queue.append(song)
+    song_queue.enqueue(song)
 
 
 def play_url(voice, song):
@@ -81,10 +83,14 @@ def play_url(voice, song):
     song_now = song
     print(f"URL: {song.url}\nTitle: {song.title}")
 
-    # transforming URL to the right format
-    with YoutubeDL(YDL_OPTIONS) as ydl:
-        info = ydl.extract_info(song.url, download=False)
-    url = info['url']
+    try:
+        # transforming URL to the playable format
+        with YoutubeDL(YDL_OPTIONS) as ydl:
+            info = ydl.extract_info(song.url, download=False)
+        url = info['url']
+    except Exception as e:
+        logging.error(e, exc_info=True)
+        return
 
     # playing URL
     voice.play(FFmpegPCMAudio(url, **FFMPEG_OPTIONS))
@@ -109,63 +115,6 @@ async def queue(ctx):
         await ctx.send("There is nothing in the queue")
 
 
-@client.command(help="adds video at position n to the favorite")
-async def fav(ctx, n=0):
-    id = ctx.message.guild.id
-    voice = get(client.voice_clients, guild=ctx.guild)
-
-    # position is not specified, so we take the song that is playing right now
-    if n == 0 and voice.is_playing():
-        song = song_now
-    # position is specified
-    elif int(n) <= len(song_queue):
-        song = song_queue[n - 1]
-    else:
-        await ctx.send(f'Length of the queue is only {len(song_queue)}, therefore there is no position {n}')
-        return
-
-    df = pd.read_csv('data/favs.csv')
-    if song.title not in df.title:
-        df.loc[df.shape[0]] = pd.Series({"url": song.url, "title": song.title})
-        df.to_csv('favs.csv', index=False)
-    else:
-        await ctx.send(f'The {song.title} is already in the favorites')
-
-
-@client.command(help="shows the content of the 'favorite'")
-async def favs(ctx):
-    # getting id of a channel the command was called in
-    id = ctx.message.guild.id
-
-    # getting the string that contains favorites
-    df = pd.read_csv('data/favs.csv')
-    string_favs = "Favorites:\n"
-    for i, song in df.iterrows():
-        string_favs += f'{i + 1}. {song.title}\n'
-
-    # splitting the string into blocks under 2000 chars in length
-    string_favs = fit_text_in_msg(string_favs)
-    for text_block in string_favs.split('@'):
-        await ctx.send(text_block)
-
-
-@client.command(help="removes the video at specified position from the favorites")
-async def removef(ctx, n):
-    # getting id of a channel the command was called in
-    id = ctx.message.guild.id
-    n = int(n)
-
-    # reading the favorites file
-    df = pd.read_csv('data/favs.csv')
-    if df.shape[0] >= n >= 1:
-        # modifying the favorites file
-        await ctx.send(f"Good decison! I don't like {df.loc[n - 1].title} too!")
-        df = df.drop([n - 1])
-        df.to_csv("favs.csv")
-    else:
-        await ctx.send(f'Length of the favorites is only {df.shape[0]}, therefore there is no position {n}')
-
-
 @client.command(help="moves the video at the position 'first number' to the position 'second number' in the queue")
 async def move(ctx, n=len(song_queue), k=1):
     n = int(n)
@@ -178,8 +127,7 @@ async def move(ctx, n=len(song_queue), k=1):
         await ctx.send(
             f"Are you drunk?! You do know that moving song from position {n} to position {k} is pointless, don't you?")
     elif len(song_queue) >= bigger and smaller >= 0:
-        song = song_queue.pop(n - 1)
-        song_queue.insert(k - 1, song)
+        song_queue.move(n-1, k-1)
         flag = True
     else:
         await ctx.send(f'Length of the queue is only {len(song_queue)}, therefore there is no position {bigger}')
@@ -197,9 +145,79 @@ async def remove(ctx, n=len(song_queue)):
     n = int(n)
     if len(song_queue) >= n >= 0:
         await ctx.send(f"Good decison! I don't like {song_queue[n - 1].title} too!")
-        song_queue.pop(n - 1)
+        song_queue.remove(n - 1)
     else:
         await ctx.send(f'Length of the queue is only {len(song_queue)}, therefore there is no position {n}')
+
+
+@client.command(help="Shuffles the queue")
+async def shuffle(ctx):
+    if len(song_queue) != 0:
+        song_queue.shuffle()
+        await ctx.send('The queue is shuffled')
+    else:
+        await ctx.send("There is nothing in the queue")
+
+
+@client.command(help="Clears the queue")
+async def clear(ctx):
+    if song_queue:
+        song_queue.clear()
+        await ctx.send("The queue is cleared")
+    else:
+        await ctx.send("There is nothing in the queue")
+
+
+@client.command(help="adds video at position n to the favorite")
+async def fav(ctx, n=0):
+    voice = get(client.voice_clients, guild=ctx.guild)
+
+    # position is not specified, so we take the song that is playing right now
+    if n == 0 and voice.is_playing():
+        song = song_now
+    # position is specified
+    elif int(n) <= len(song_queue):
+        song = song_queue[n - 1]
+    else:
+        await ctx.send(f'Length of the queue is only {len(song_queue)}, therefore there is no position {n}')
+        return
+
+    df = pd.read_csv('data/favs.csv')
+    if song.title not in df.title:
+        df.loc[df.shape[0]] = pd.Series({"url": song.url, "title": song.title})
+        df.to_csv('data/favs.csv', index=False)
+        await ctx.send(f'{song.title} was added to the favorites')
+    else:
+        await ctx.send(f'{song.title} is already in the favorites')
+
+
+@client.command(help="shows the content of the 'favorite'")
+async def favs(ctx):
+    # getting the string that contains favorites
+    df = pd.read_csv('data/favs.csv')
+    string_favs = "Favorites:\n"
+    for i, song in df.iterrows():
+        string_favs += f'{i + 1}. {song.title}\n'
+
+    # splitting the string into blocks under 2000 chars in length
+    string_favs = fit_text_in_msg(string_favs)
+    for text_block in string_favs.split('@'):
+        await ctx.send(text_block)
+
+
+@client.command(help="removes the video at specified position from the favorites")
+async def removef(ctx, n):
+    n = int(n)
+
+    # reading the favorites file
+    df = pd.read_csv('data/favs.csv')
+    if df.shape[0] >= n >= 1:
+        # modifying the favorites file
+        await ctx.send(f"Good decison! I don't like {df.loc[n - 1].title} too!")
+        df = df.drop([n - 1])
+        df.to_csv("data/.csv")
+    else:
+        await ctx.send(f'Length of the favorites is only {df.shape[0]}, therefore there is no position {n}')
 
 
 @client.command(help="plays video instantly")
@@ -222,24 +240,8 @@ async def np(ctx):
     voice = get(client.voice_clients, guild=ctx.guild)
     if voice.is_playing():
         await ctx.send(f'"{song_now.title}" is playing right now.')
-
-
-@client.command(help="Shuffles the queue")
-async def shuffle(ctx):
-    if song_queue:
-        random.shuffle(song_queue)
-        await ctx.send('The queue is shuffled')
     else:
-        await ctx.send("There is nothing in the queue")
-
-
-@client.command(help="Clears the queue")
-async def clear(ctx):
-    if song_queue:
-        song_queue.clear()
-        await ctx.send("The queue is cleared")
-    else:
-        await ctx.send("There is nothing in the queue")
+        await ctx.send("Nothing is playing")
 
 
 @client.command(help="Resumes playing")

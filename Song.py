@@ -35,7 +35,6 @@ class Song:
     def __get_title(cls, url):
         request = requests.get(url, "html.parser")
         page = BeautifulSoup(request.content, 'html.parser')
-        # add .isascii check and status_code check
         title = page.find("meta", {"name": "title"})["content"]
 
         return title
