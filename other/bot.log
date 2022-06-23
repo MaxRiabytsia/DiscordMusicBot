@@ -1,0 +1,7 @@
+discord.voice_client - ERROR - Disconnected from voice... Reconnecting in 1.42s.
+Traceback (most recent call last):
+  File "C:\Users\Max\AppData\Local\Programs\Python\Python310\lib\site-packages\discord\voice_client.py", line 414, in poll_voice_ws
+    await self.ws.poll_event()
+  File "C:\Users\Max\AppData\Local\Programs\Python\Python310\lib\site-packages\discord\gateway.py", line 895, in poll_event
+    raise ConnectionClosed(self.ws, shard_id=None, code=self._close_code)
+discord.errors.ConnectionClosed: Shard ID None WebSocket closed with 1006
