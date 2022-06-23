@@ -14,6 +14,9 @@ class Song:
 
     @classmethod
     def from_query(cls, query):
+        """
+        Gets the url of the first video found on YouTube after searching 'query'
+        """
         # composing url
         search_request = query.lower().replace(' ', '+').replace('–', '-').replace('\n', '')
         # making requests in ukrainian and russian work
@@ -33,6 +36,9 @@ class Song:
 
     @classmethod
     def __get_title(cls, url):
+        """
+        Gets the title of the video from 'url'
+        """
         request = requests.get(url, "html.parser")
         page = BeautifulSoup(request.content, 'html.parser')
         title = page.find("meta", {"name": "title"})["content"]
