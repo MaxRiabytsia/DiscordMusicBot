@@ -12,7 +12,7 @@ from SongQueue import SongQueue
 from constants import *
 
 
-logging.basicConfig(filename='other/bot.log', format='%(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(filename='other/bot.log', format='\n\n%(name)s - %(levelname)s - %(message)s')
 client = commands.Bot(command_prefix=['!', '~'])
 song_queue = SongQueue()
 song_now = None
@@ -51,7 +51,10 @@ def play_from_favs(request):
 
     # adding to the queue n random songs from fav
     df = pd.read_csv('data/favs.csv')
-    sample = df.sample(n)
+    if df.shape[0] > n:
+        sample = df.sample(n)
+    else:
+        sample = df.sample(n, replace=True)
     for i, row in sample.iterrows():
         song_queue.enqueue(Song(row.url, row.title))
 
@@ -72,18 +75,19 @@ async def play(ctx, request="fav"):
     else:
         await channel.connect()
 
+    msg = ctx.message.content
+    msg = msg[msg.index('!') + 6::]
+
     # playing url
     if validators.url(request):
         song = Song(request)
     # playing n random songs from favorites
     elif request.startswith('fav'):
-        play_from_favs(request)
+        play_from_favs(msg)
         await ctx.send("Adding audio from favorites to the queue")
         return
     # playing top audio from YT found by given query
     else:
-        msg = ctx.message.content
-        msg = msg[msg.index('!') + 6::]
         song = Song.from_query(msg)
         await ctx.send(song.url)
 
@@ -91,7 +95,7 @@ async def play(ctx, request="fav"):
     song_queue.enqueue(song)
 
 
-def play_url(voice, song):
+def play_url(voice, song, attempt=1):
     """
     Plays the song.
     """
@@ -101,11 +105,13 @@ def play_url(voice, song):
 
     # transforming URL to the playable format
     with YoutubeDL(YDL_OPTIONS) as ydl:
+        ydl.cache.remove()
         try:
-            ydl.cache.remove()
             info = ydl.extract_info(song.url, download=False)
-        except Exception as error:
+        except ydl.utils.DownloadError as error:
             logging.error(error, exc_info=True)
+            if attempt == 1:
+                play_url(voice, song, 2)
     url = info['url']
 
     # playing URL
@@ -127,7 +133,8 @@ async def queue(ctx):
             # splitting the string into blocks under 2000 chars in length
             list_of_messages = split_string_into_pieces(string_queue, 1800)
             for text_block in list_of_messages:
-                await ctx.send(text_block)
+                if text_block != "":
+                    await ctx.send(text_block)
         else:
             await ctx.send(string_queue)
     else:
@@ -217,7 +224,7 @@ async def fav(ctx, n=0):
         return
 
     df = pd.read_csv('data/favs.csv')
-    if song.title not in df.title:
+    if song.title not in df.title.values:
         df.loc[df.shape[0]] = pd.Series({"url": song.url, "title": song.title})
         df.to_csv('data/favs.csv', index=False)
         await ctx.send(f'{song.title} was added to the favorites')
