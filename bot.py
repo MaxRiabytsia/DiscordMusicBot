@@ -1,7 +1,7 @@
 from discord.ext import commands, tasks
 from discord.utils import get
 from discord import FFmpegPCMAudio
-from youtube_dl import YoutubeDL
+import youtube_dl
 from re import findall
 import pandas as pd
 import validators
@@ -104,11 +104,11 @@ def play_url(voice, song, attempt=1):
     print(f"URL: {song.url}\nTitle: {song.title}")
 
     # transforming URL to the playable format
-    with YoutubeDL(YDL_OPTIONS) as ydl:
+    with youtube_dl.YoutubeDL(YDL_OPTIONS) as ydl:
         ydl.cache.remove()
         try:
             info = ydl.extract_info(song.url, download=False)
-        except ydl.utils.DownloadError as error:
+        except (youtube_dl.utils.DownloadError, youtube_dl.utils.ExtractorError) as error:
             logging.error(error, exc_info=True)
             if attempt == 1:
                 play_url(voice, song, 2)
