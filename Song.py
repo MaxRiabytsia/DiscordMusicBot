@@ -1,5 +1,4 @@
 from bs4 import BeautifulSoup
-import requests
 import urllib.request
 from re import findall
 
@@ -39,8 +38,12 @@ class Song:
         """
         Gets the title of the video from 'url'
         """
-        request = requests.get(url, "html.parser")
-        page = BeautifulSoup(request.content, 'html.parser')
+        # getting the html of the URL
+        fp = urllib.request.urlopen(url)
+        mybytes = fp.read()
+        html = mybytes.decode("utf8")
+        fp.close()
+        page = BeautifulSoup(html, 'html.parser')
         title = page.find("meta", {"name": "title"})["content"]
 
         return title
