@@ -18,6 +18,7 @@ song_queue = SongQueue()
 song_now = None
 
 
+# region playing audio
 @tasks.loop(seconds=3.0, count=None)
 async def play_from_queue():
     """
@@ -29,18 +30,11 @@ async def play_from_queue():
         play_url(voice, song_queue.dequeue())
 
 
-@client.event
-async def on_ready():
+def play_from_file(request, file):
     """
-    Prints message when the bot activates
-    """
-    print('Bot is online')
-
-
-def play_from_favs(request):
-    """
-    Adds n random songs from favorite to queue,
-    n is inside the request
+    Adds n random songs from file to the queue,
+    n is inside the request.
+    File can either be favorite songs or recommended songs.
     """
     # finding n
     n = findall(r'\d{1,3}', request)
@@ -50,7 +44,7 @@ def play_from_favs(request):
         n = int(n[0])
 
     # adding to the queue n random songs from fav
-    df = pd.read_csv('data/favs.csv')
+    df = pd.read_csv(f'data/{file}')
     if df.shape[0] > n:
         sample = df.sample(n)
     else:
@@ -60,11 +54,12 @@ def play_from_favs(request):
 
 
 @client.command(help="Connects bot to a voice channel if it's not and plays the request. "
-                     "Types of requests: URL, word query, 'fav' + n (optional quantity).")
+                     "Types of requests: URL, word query, 'fav' + n (optional quantity), "
+                     "'recom' + n (optional quantity).")
 async def play(ctx, request="fav"):
     """
     Connects bot to a voice channel if it's not and plays the request.
-    Types of requests: URL, word query, 'fav' + n (optional quantity).
+    Types of requests: URL, word query, 'fav' + n (optional quantity), 'recom' + n (optional quantity).
     """
     channel = ctx.message.author.voice.channel
     voice = get(client.voice_clients, guild=ctx.guild)
@@ -76,15 +71,23 @@ async def play(ctx, request="fav"):
         await channel.connect()
 
     msg = ctx.message.content
-    msg = msg[msg.index('!') + 6::]
+    if '!' in msg:
+        msg = msg[msg.index('!') + 6::]
+    else:
+        msg = msg[msg.index('~') + 6::]
 
     # playing url
     if validators.url(request):
         song = Song(request)
     # playing n random songs from favorites
-    elif request.startswith('fav'):
-        play_from_favs(msg)
+    elif request.startswith("fav"):
+        play_from_file(msg, "favs.csv")
         await ctx.send("Adding audio from favorites to the queue")
+        return
+    # playing n random songs from favorites
+    elif request.startswith("recom"):
+        play_from_file(msg, "recommendations.csv")
+        await ctx.send("Adding recommended audio based on your favorites to the queue")
         return
     # playing top audio from YT found by given query
     else:
@@ -93,6 +96,16 @@ async def play(ctx, request="fav"):
 
     # adding the audio to the queue
     song_queue.enqueue(song)
+
+
+@client.command(help="Plays winning songs")
+async def champ(ctx):
+    """
+    Plays winning songs
+    """
+    df = pd.read_csv("data/champ.csv")
+    url = df.sample(1).iloc[0].url
+    await instant(ctx, url)
 
 
 def play_url(voice, song, attempt=1):
@@ -117,8 +130,10 @@ def play_url(voice, song, attempt=1):
     # playing URL
     voice.play(FFmpegPCMAudio(url, **FFMPEG_OPTIONS))
     voice.is_playing()
+# endregion
 
 
+# region queue
 @client.command(help="Displays the queue in chat")
 async def queue(ctx):
     """
@@ -204,8 +219,10 @@ async def clear(ctx):
         await ctx.send("The queue is cleared")
     else:
         await ctx.send("There is nothing in the queue")
+# endregion
 
 
+# region favs control
 @client.command(help="Adds audio at position n to the favorite")
 async def fav(ctx, n=0):
     """
@@ -262,32 +279,13 @@ async def removef(ctx, n):
         # modifying the favorites file
         await ctx.send(f"Good decison! I don't like {df.loc[n - 1].title} too!")
         df = df.drop([n - 1])
-        df.to_csv("data/.csv")
+        df.to_csv("data/favs.csv")
     else:
         await ctx.send(f'Length of the favorites is only {df.shape[0]}, therefore there is no position {n}')
+# endregion
 
 
-@client.command(help="Plays the audio instantly")
-async def instant(ctx, request):
-    """
-    Plays the audio instantly
-    """
-    await play(ctx, request)
-    if song_queue:
-        await move(ctx)
-        await skip(ctx)
-
-
-@client.command(help="Plays the audio after the one that's playing now")
-async def next(ctx, request):
-    """
-    Adds the to queue and moves it to the first position
-    """
-    await play(ctx, request)
-    if song_queue:
-        await move(ctx)
-
-
+# region audio stream control
 @client.command(help="Displays what audio is playing right now")
 async def np(ctx):
     """
@@ -345,16 +343,39 @@ async def replay(ctx):
     voice.stop()
     play_url(voice, song_now)
     await ctx.send(f"Let's listen to {song_now.title} again!")
+# endregion
 
 
-@client.command(help="Plays winning songs")
-async def champ(ctx):
+# region shortcuts
+@client.command(help="Plays the audio instantly")
+async def instant(ctx, request):
     """
-    Plays winning songs
+    Plays the audio instantly
     """
-    df = pd.read_csv("data/champ.csv")
-    url = df.sample(1).iloc[0].url
-    await instant(ctx, url)
+    await play(ctx, request)
+    if song_queue:
+        await move(ctx)
+        await skip(ctx)
+
+
+@client.command(help="Plays the audio after the one that's playing now")
+async def next(ctx, request):
+    """
+    Adds the to queue and moves it to the first position
+    """
+    await play(ctx, request)
+    if song_queue:
+        await move(ctx)
+# endregion
+
+
+# region other
+@client.event
+async def on_ready():
+    """
+    Prints message when the bot activates
+    """
+    print('Bot is online')
 
 
 def split_string_into_pieces(string, size):
@@ -381,6 +402,7 @@ def split_string_into_pieces(string, size):
     new_string = ''.join(list_of_chars)
 
     return new_string.split("@@@")
+# endregion
 
 
 def main():
