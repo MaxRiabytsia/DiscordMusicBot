@@ -11,23 +11,23 @@ from Song import Song
 from SongQueue import SongQueue
 from constants import *
 
-
 logging.basicConfig(filename='other/bot.log', format='\n\n%(name)s - %(levelname)s - %(message)s')
-client = commands.Bot(command_prefix=['!', '~'])
+prefixes = ['!', '~']
+client = commands.Bot(command_prefix=prefixes)
 song_queue = SongQueue()
 song_now = None
 
 
 # region playing audio
 @tasks.loop(seconds=3.0, count=None)
-async def play_from_queue():
+async def play_from_queue(ctx):
     """
     Loop that checks every 3 seconds if the bot has stopped playing and if there is something in queue,
     if so, it plays first audio from the queue
     """
     voice = get(client.voice_clients)
     if len(song_queue) != 0 and not voice.is_playing() and not voice.is_paused():
-        play_url(voice, song_queue.dequeue())
+        await play_url(ctx, voice, song_queue.dequeue())
 
 
 def play_from_file(request, file):
@@ -61,6 +61,10 @@ async def play(ctx, request="fav"):
     Connects bot to a voice channel if it's not and plays the request.
     Types of requests: URL, word query, 'fav' + n (optional quantity), 'recom' + n (optional quantity).
     """
+    if not play_from_queue.is_running():
+        # starting 'play_from_queue' loop
+        play_from_queue.start(ctx)
+
     channel = ctx.message.author.voice.channel
     voice = get(client.voice_clients, guild=ctx.guild)
 
@@ -71,10 +75,9 @@ async def play(ctx, request="fav"):
         await channel.connect()
 
     msg = ctx.message.content
-    if '!' in msg:
-        msg = msg[msg.index('!') + 6::]
-    else:
-        msg = msg[msg.index('~') + 6::]
+    for char in prefixes:
+        if char in msg.strip()[:5]:
+            msg = msg[msg.index(char) + 6::]
 
     # playing url
     if validators.url(request):
@@ -108,7 +111,7 @@ async def champ(ctx):
     await instant(ctx, url)
 
 
-def play_url(voice, song, attempt=1):
+async def play_url(ctx, voice, song, attempt=1):
     """
     Plays the song.
     """
@@ -121,15 +124,20 @@ def play_url(voice, song, attempt=1):
         ydl.cache.remove()
         try:
             info = ydl.extract_info(song.url, download=False)
+            url = info['url']
+            # playing URL
+            voice.play(FFmpegPCMAudio(url, **FFMPEG_OPTIONS))
+            voice.is_playing()
         except (youtube_dl.utils.DownloadError, youtube_dl.utils.ExtractorError) as error:
             logging.error(error, exc_info=True)
+            await ctx.send(f"Error occured in attempting to play '{song.title}'.")
             if attempt == 1:
-                play_url(voice, song, 2)
-    url = info['url']
+                await ctx.send(f"Trying again...")
+                await play_url(ctx, voice, song, 2)
+            else:
+                await ctx.send(f"Skipping to the next item in the queue...")
 
-    # playing URL
-    voice.play(FFmpegPCMAudio(url, **FFMPEG_OPTIONS))
-    voice.is_playing()
+
 # endregion
 
 
@@ -171,7 +179,7 @@ async def move(ctx, n=len(song_queue), k=1):
         await ctx.send(
             f"Are you drunk?! You do know that moving song from position {n} to position {k} is pointless, don't you?")
     elif len(song_queue) >= bigger and smaller >= 0:
-        song_queue.move(n-1, k-1)
+        song_queue.move(n - 1, k - 1)
         flag = True
     else:
         await ctx.send(f'Length of the queue is only {len(song_queue)}, therefore there is no position {bigger}')
@@ -219,6 +227,8 @@ async def clear(ctx):
         await ctx.send("The queue is cleared")
     else:
         await ctx.send("There is nothing in the queue")
+
+
 # endregion
 
 
@@ -282,6 +292,8 @@ async def removef(ctx, n):
         df.to_csv("data/favs.csv")
     else:
         await ctx.send(f'Length of the favorites is only {df.shape[0]}, therefore there is no position {n}')
+
+
 # endregion
 
 
@@ -292,7 +304,7 @@ async def np(ctx):
     Displays what audio is playing right now
     """
     voice = get(client.voice_clients, guild=ctx.guild)
-    if voice.is_playing():
+    if voice.is_playing() and isinstance(song_now, Song):
         await ctx.send(f'"{song_now.title}" is playing right now.')
     else:
         await ctx.send("Nothing is playing")
@@ -341,8 +353,13 @@ async def skip(ctx):
 async def replay(ctx):
     voice = get(client.voice_clients, guild=ctx.guild)
     voice.stop()
-    play_url(voice, song_now)
-    await ctx.send(f"Let's listen to {song_now.title} again!")
+    if isinstance(song_now, Song):
+        await play_url(ctx, voice, song_now)
+        await ctx.send(f"Let's listen to {song_now.title} again!")
+    else:
+        await ctx.send(f"There is nothing to replay")
+
+
 # endregion
 
 
@@ -406,9 +423,6 @@ def split_string_into_pieces(string, size):
 
 
 def main():
-    # starting 'play_from_queue' loop
-    play_from_queue.start()
-
     # starting the bot
     client.run(BOT_TOKEN)
 
