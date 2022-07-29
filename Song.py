@@ -12,7 +12,7 @@ class Song:
             self.title = self.__get_title(self.url)
 
     @classmethod
-    def from_query(cls, query):
+    def from_query(cls, query, video_id=0):
         """
         Gets the url of the first video found on YouTube after searching 'query'
         """
@@ -29,7 +29,7 @@ class Song:
         # finding all the videos
         video_ids = findall(r"watch\?v=(\S{11})", html.read().decode())
         # composing the url of the first video
-        url = "https://www.youtube.com/watch?v=" + video_ids[0]
+        url = "https://www.youtube.com/watch?v=" + video_ids[video_id]
 
         return Song(url)
 

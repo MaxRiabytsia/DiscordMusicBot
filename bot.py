@@ -130,10 +130,37 @@ async def play_url(ctx, voice, song, attempt=1):
             voice.is_playing()
         except (youtube_dl.utils.DownloadError, youtube_dl.utils.ExtractorError) as error:
             logging.error(error, exc_info=True)
-            await ctx.send(f"Error occured in attempting to play '{song.title}'.")
+            if song.title:
+                await ctx.send(f"Error occured in attempting to play '{song.title}'.")
+            else:
+                await ctx.send(f"Error occured in attempting to play '{song.url}'.")
+
+            # handling 'video is no longer available' and 'sign in to confirm you age'
+            removed_from_favs = False
+            if "video unavailable" in str(error).lower() or "sign in to confirm you age" in str(error).lower():
+                if "video unavailable" in str(error).lower():
+                    text_of_problem = "no longer available."
+                else:
+                    text_of_problem = "age-restricted."
+                if song.title:
+                    await ctx.send(f"Video '{song.title}' is {text_of_problem} "
+                                   f"We will look for different video with similar title and play it instead.")
+                    df = pd.read_csv('data/favs.csv')
+                    if song.url in df.url.values:
+                        await ctx.send(f"'{song.title}' was in favs so we are removing it "
+                                       f"and instead adding the new video")
+                        await removef(ctx, df.index[df.title == song.title][0] + 1)
+                        removed_from_favs = True
+                    song = Song.from_query(song.title, video_id=attempt-1)
+                else:
+                    attempt = 2
+                    await ctx.send(f"Video '{song.url}' is {text_of_problem}.")
+
             if attempt == 1:
                 await ctx.send(f"Trying again...")
                 await play_url(ctx, voice, song, 2)
+                if removed_from_favs:
+                    await fav(ctx)
             else:
                 await ctx.send(f"Skipping to the next item in the queue...")
 
