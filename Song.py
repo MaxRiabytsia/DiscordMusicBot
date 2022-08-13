@@ -11,6 +11,14 @@ class Song:
         else:
             self.title = self.__get_title(self.url)
 
+    def __eq__(self, other):
+        return self.url == other.url
+
+    def __str__(self):
+        if self.title:
+            return self.title
+        return self.url
+
     @classmethod
     def from_query(cls, query, video_id=0):
         """

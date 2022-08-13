@@ -1,3 +1,4 @@
+import asyncio
 from discord.ext import commands, tasks
 from discord.utils import get
 from discord import FFmpegPCMAudio
@@ -6,10 +7,12 @@ from re import findall
 import pandas as pd
 import validators
 import logging
+import os
 
 from Song import Song
 from SongQueue import SongQueue
 from constants import *
+import generate_recommendations
 
 logging.basicConfig(filename='other/bot.log', format='\n\n%(name)s - %(levelname)s - %(message)s')
 prefixes = ['!', '~']
@@ -30,7 +33,52 @@ async def play_from_queue(ctx):
         await play_url(ctx, voice, song_queue.dequeue())
 
 
-def play_from_file(request, file):
+@client.command(help="Replaces song on specified position in the queue and favs "
+                     "(or currently playing song if position is not specified)"
+                     "with another song with similar title")
+async def replace(ctx, n=0):
+    # finding song that is being replaced
+    if n == 0:
+        global song_now
+        song = song_now
+    else:
+        song = song_queue[n-1]
+
+    # finding a song to replace it
+    new_song = song
+    i = 0
+    while new_song.url == song.url:
+        new_song = Song.from_query(song.title, video_id=i)
+        i += 1
+
+    # checking if the song was in favs
+    # if so remove it
+    df = pd.read_csv("data/favs.csv")
+    removed_from_favs = False
+    if song.url in df.url.unique():
+        removed_from_favs = True
+        await removef(ctx, df.index[df.url == song.url][0] + 1)
+
+    await ctx.send(f"Replacing '{song.title}' with '{new_song.title}'")
+
+    # if the song is playing, play new song instead
+    if n == 0:
+        await instant(ctx, new_song.url)
+    # if the song is in the queue, then replace it
+    else:
+        await play(ctx, new_song.url)
+        await asyncio.sleep(0.1)
+        await remove(ctx, n)
+        await asyncio.sleep(0.1)
+        await move(ctx, k=n)
+
+    # add new song to favs
+    if removed_from_favs:
+        await asyncio.sleep(0.1)
+        await fav(ctx, n)
+
+
+async def play_from_file(ctx, request, file):
     """
     Adds n random songs from file to the queue,
     n is inside the request.
@@ -44,6 +92,11 @@ def play_from_file(request, file):
         n = int(n[0])
 
     # adding to the queue n random songs from fav
+    if file == "recommendations.csv":
+        data_folder = os.listdir("data")
+        if "matched_favs.csv" not in data_folder or "new" in request:
+            await ctx.send("Generating recommendations... (it might take some time)")
+            generate_recommendations.main(True)
     df = pd.read_csv(f'data/{file}')
     if df.shape[0] > n:
         sample = df.sample(n)
@@ -84,12 +137,12 @@ async def play(ctx, request="fav"):
         song = Song(request)
     # playing n random songs from favorites
     elif request.startswith("fav"):
-        play_from_file(msg, "favs.csv")
+        await play_from_file(ctx, msg, "favs.csv")
         await ctx.send("Adding audio from favorites to the queue")
         return
     # playing n random songs from favorites
     elif request.startswith("recom"):
-        play_from_file(msg, "recommendations.csv")
+        await play_from_file(ctx, msg, "recommendations.csv")
         await ctx.send("Adding recommended audio based on your favorites to the queue")
         return
     # playing top audio from YT found by given query
@@ -117,7 +170,7 @@ async def play_url(ctx, voice, song, attempt=1):
     """
     global song_now
     song_now = song
-    print(f"URL: {song.url}\nTitle: {song.title}")
+    print(f"\nURL: {song.url}\nTitle: {song.title}")
 
     # transforming URL to the playable format
     with youtube_dl.YoutubeDL(YDL_OPTIONS) as ydl:
@@ -130,41 +183,18 @@ async def play_url(ctx, voice, song, attempt=1):
             voice.is_playing()
         except (youtube_dl.utils.DownloadError, youtube_dl.utils.ExtractorError) as error:
             logging.error(error, exc_info=True)
-            if song.title:
-                await ctx.send(f"Error occured in attempting to play '{song.title}'.")
-            else:
-                await ctx.send(f"Error occured in attempting to play '{song.url}'.")
+            await ctx.send(f"Error occured in attempting to play '{song}'.")
 
             # handling 'video is no longer available' and 'sign in to confirm you age'
-            removed_from_favs = False
             if "video unavailable" in str(error).lower() or "sign in to confirm you age" in str(error).lower():
                 if "video unavailable" in str(error).lower():
                     text_of_problem = "no longer available."
                 else:
                     text_of_problem = "age-restricted."
-                if song.title:
-                    await ctx.send(f"Video '{song.title}' is {text_of_problem} "
-                                   f"We will look for different video with similar title and play it instead.")
-                    df = pd.read_csv('data/favs.csv')
-                    if song.url in df.url.values:
-                        await ctx.send(f"'{song.title}' was in favs so we are removing it "
-                                       f"and instead adding the new video")
-                        await removef(ctx, df.index[df.title == song.title][0] + 1)
-                        removed_from_favs = True
-                    song = Song.from_query(song.title, video_id=attempt-1)
-                else:
-                    attempt = 2
-                    await ctx.send(f"Video '{song.url}' is {text_of_problem}.")
 
-            if attempt == 1:
-                await ctx.send(f"Trying again...")
-                await play_url(ctx, voice, song, 2)
-                if removed_from_favs:
-                    await fav(ctx)
-            else:
-                await ctx.send(f"Skipping to the next item in the queue...")
-
-
+                await ctx.send(f"Video '{song.title}' is {text_of_problem} "
+                               f"We will look for different video with similar title and play it instead.")
+                await replace(ctx)
 # endregion
 
 
@@ -410,6 +440,8 @@ async def next(ctx, request):
     await play(ctx, request)
     if song_queue:
         await move(ctx)
+
+
 # endregion
 
 
@@ -446,6 +478,8 @@ def split_string_into_pieces(string, size):
     new_string = ''.join(list_of_chars)
 
     return new_string.split("@@@")
+
+
 # endregion
 
 
