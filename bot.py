@@ -135,23 +135,22 @@ async def play(ctx, request="fav"):
     # playing url
     if validators.url(request):
         song = Song(request)
+        # adding the audio to the queue
+        song_queue.enqueue(song)
     # playing n random songs from favorites
     elif request.startswith("fav"):
         await play_from_file(ctx, msg, "favs.csv")
         await ctx.send("Adding audio from favorites to the queue")
-        return
     # playing n random songs from favorites
     elif request.startswith("recom"):
         await play_from_file(ctx, msg, "recommendations.csv")
         await ctx.send("Adding recommended audio based on your favorites to the queue")
-        return
     # playing top audio from YT found by given query
     else:
         song = Song.from_query(msg)
         await ctx.send(song.url)
-
-    # adding the audio to the queue
-    song_queue.enqueue(song)
+        # adding the audio to the queue
+        song_queue.enqueue(song)
 
 
 @client.command(help="Plays winning songs")
@@ -186,7 +185,8 @@ async def play_url(ctx, voice, song, attempt=1):
             await ctx.send(f"Error occured in attempting to play '{song}'.")
 
             # handling 'video is no longer available' and 'sign in to confirm you age'
-            if "video unavailable" in str(error).lower() or "sign in to confirm you age" in str(error).lower():
+            if ("video unavailable" in str(error).lower() or "sign in to confirm you age" in str(error).lower() or
+                    "private" in str(error).lower()):
                 if "video unavailable" in str(error).lower():
                     text_of_problem = "no longer available."
                 else:
@@ -195,6 +195,12 @@ async def play_url(ctx, voice, song, attempt=1):
                 await ctx.send(f"Video '{song.title}' is {text_of_problem} "
                                f"We will look for different video with similar title and play it instead.")
                 await replace(ctx)
+            else:
+                if attempt == 1:
+                    await ctx.send("Trying again...")
+                    await play_url(ctx, voice, song, attempt=2)
+                else:
+                    await replace(ctx)
 # endregion
 
 
