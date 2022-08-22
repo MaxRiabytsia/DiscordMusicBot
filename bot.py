@@ -40,42 +40,31 @@ async def replace(ctx, n=0):
     # finding song that is being replaced
     if n == 0:
         global song_now
-        song = song_now
+        old_song = song_now
     else:
-        song = song_queue[n-1]
+        old_song = song_queue[n-1]
 
-    # finding a song to replace it
-    new_song = song
+    # finding a new song to replace it
+    new_song = old_song
     i = 0
-    while new_song.url == song.url:
-        new_song = Song.from_query(song.title, video_id=i)
+    while new_song.url == old_song.url:
+        new_song = Song.from_query(old_song.title, video_id=i)
         i += 1
 
-    # checking if the song was in favs
-    # if so remove it
-    df = pd.read_csv("data/favs.csv")
-    removed_from_favs = False
-    if song.url in df.url.unique():
-        removed_from_favs = True
-        await removef(ctx, df.index[df.url == song.url][0] + 1)
-
-    await ctx.send(f"Replacing '{song.title}' with '{new_song.title}'")
+    await ctx.send(f"Replacing '{old_song.title}' with '{new_song.title}'")
 
     # if the song is playing, play new song instead
     if n == 0:
         await instant(ctx, new_song.url)
     # if the song is in the queue, then replace it
     else:
-        await play(ctx, new_song.url)
-        await asyncio.sleep(0.1)
-        await remove(ctx, n)
-        await asyncio.sleep(0.1)
-        await move(ctx, k=n)
+        song_queue.replace(n-1, new_song)
 
-    # add new song to favs
-    if removed_from_favs:
-        await asyncio.sleep(0.1)
-        await fav(ctx, n)
+    # replace in favs if it is there
+    old_song_index_in_favs = find_song_in_favs(old_song)
+    if old_song_index_in_favs != -1:
+        await removef(ctx, old_song_index_in_favs + 1)
+        await fav(ctx, n-1)
 
 
 async def play_from_file(ctx, request, file):
@@ -97,6 +86,7 @@ async def play_from_file(ctx, request, file):
         if "matched_favs.csv" not in data_folder or "new" in request:
             await ctx.send("Generating recommendations... (it might take some time)")
             generate_recommendations.main(True)
+
     df = pd.read_csv(f'data/{file}')
     if df.shape[0] > n:
         sample = df.sample(n)
@@ -108,7 +98,8 @@ async def play_from_file(ctx, request, file):
 
 @client.command(help="Connects bot to a voice channel if it's not and plays the request. "
                      "Types of requests: URL, word query, 'fav' + n (optional quantity), "
-                     "'recom' + n (optional quantity).")
+                     "'recom' + 'new' (optional parameter to generate new recommendations "
+                     "(adding it will dramatically increase required time)) + n (optional quantity).")
 async def play(ctx, request="fav"):
     """
     Connects bot to a voice channel if it's not and plays the request.
@@ -337,6 +328,13 @@ async def favs(ctx):
     list_of_messages = split_string_into_pieces(string_favs, 1800)
     for text_block in list_of_messages:
         await ctx.send(text_block)
+
+
+def find_song_in_favs(song: Song):
+    df = pd.read_csv("data/favs.csv")
+    if song.url in df.url.unique():
+        return df.index[df.url == song.url][0]
+    return -1
 
 
 @client.command(help="Removes the audio at specified position from the favorites")

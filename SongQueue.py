@@ -52,3 +52,6 @@ class SongQueue:
     def shuffle(self):
         if self.__queue:
             random.shuffle(self.__queue)
+
+    def replace(self, old_song_index, new_song):
+        self.__queue[old_song_index] = new_song
