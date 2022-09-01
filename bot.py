@@ -33,40 +33,6 @@ async def play_from_queue(ctx):
         await play_url(ctx, voice, song_queue.dequeue())
 
 
-@client.command(help="Replaces song on specified position in the queue and favs "
-                     "(or currently playing song if position is not specified)"
-                     "with another song with similar title")
-async def replace(ctx, n=0):
-    # finding song that is being replaced
-    if n == 0:
-        global song_now
-        old_song = song_now
-    else:
-        old_song = song_queue[n-1]
-
-    # finding a new song to replace it
-    new_song = old_song
-    i = 0
-    while new_song.url == old_song.url:
-        new_song = Song.from_query(old_song.title, video_id=i)
-        i += 1
-
-    await ctx.send(f"Replacing '{old_song.title}' with '{new_song.title}'")
-
-    # if the song is playing, play new song instead
-    if n == 0:
-        await instant(ctx, new_song.url)
-    # if the song is in the queue, then replace it
-    else:
-        song_queue.replace(n-1, new_song)
-
-    # replace in favs if it is there
-    old_song_index_in_favs = find_song_in_favs(old_song)
-    if old_song_index_in_favs != -1:
-        await removef(ctx, old_song_index_in_favs + 1)
-        await fav(ctx, n-1)
-
-
 async def play_from_file(ctx, request, file):
     """
     Adds n random songs from file to the queue,
@@ -450,6 +416,39 @@ async def next(ctx, request):
 
 
 # region other
+@client.command(help="Replaces song on specified position in the queue and favs "
+                     "(or currently playing song if position is not specified)"
+                     "with another song with similar title")
+async def replace(ctx, n=0):
+    # finding song that is being replaced
+    if n == 0:
+        global song_now
+        old_song = song_now
+    else:
+        old_song = song_queue[n-1]
+
+    # finding a new song to replace it
+    new_song = old_song
+    i = 0
+    while new_song.url == old_song.url:
+        new_song = Song.from_query(old_song.title, video_id=i)
+        i += 1
+
+    await ctx.send(f"Replacing '{old_song.title}' with '{new_song.title}'")
+
+    # if the song is playing, play new song instead
+    if n == 0:
+        await instant(ctx, new_song.url)
+    # if the song is in the queue, then replace it
+    else:
+        song_queue.replace(n-1, new_song)
+
+    # replace in favs if it is there
+    old_song_index_in_favs = find_song_in_favs(old_song)
+    if old_song_index_in_favs != -1:
+        await removef(ctx, old_song_index_in_favs + 1)
+        await fav(ctx, n)
+
 @client.event
 async def on_ready():
     """
