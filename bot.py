@@ -447,7 +447,9 @@ async def replace(ctx, n=0):
     old_song_index_in_favs = find_song_in_favs(old_song)
     if old_song_index_in_favs != -1:
         await removef(ctx, old_song_index_in_favs + 1)
+        await asyncio.sleep(2.5)
         await fav(ctx, n)
+
 
 @client.event
 async def on_ready():
