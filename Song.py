@@ -43,14 +43,9 @@ class Song:
 
     @classmethod
     def __get_title(cls, url):
-        """
-        Gets the title of the video from 'url'
-        """
         # getting the html of the URL
-        fp = urllib.request.urlopen(url)
-        mybytes = fp.read()
-        html = mybytes.decode("utf8")
-        fp.close()
+        with urllib.request.urlopen(url) as file:
+            html = file.read().decode("utf8")
         page = BeautifulSoup(html, 'html.parser')
         title = page.find("meta", {"name": "title"})["content"]
 
