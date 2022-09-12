@@ -1,3 +1,6 @@
+import asyncio
+import time
+
 from discord.ext import commands, tasks
 from discord.utils import get
 from discord import FFmpegPCMAudio
@@ -5,7 +8,7 @@ import youtube_dl
 import pandas as pd
 import logging
 import os
-import atexit
+import sys
 
 from Song import Song
 from SongQueue import SongQueue
@@ -19,11 +22,10 @@ bot = commands.Bot(command_prefix=PREFIXES)
 song_queue = SongQueue()
 favorites = Favorites()
 song_being_played = None
-atexit.register(favorites.save)
 
 
 # region playing audio
-@tasks.loop(seconds=3.0, count=None)
+@tasks.loop(seconds=2.0, count=None)
 async def play_from_queue(ctx):
     """
     Loop that checks every 3 seconds if the bot has stopped playing and if there is something in queue.
@@ -169,11 +171,13 @@ async def move_song_in_queue(ctx, position_from=len(song_queue), position_to=1):
                            f"We don't need to rush with listening '{song_queue[position_to - 1].title}'!")
 
 
+# TODO default doesnt work
 @bot.command(name="remove", help="Removes the audio at specified position from the queue")
 async def remove_song_from_queue_by_position(ctx, position=len(song_queue)):
-    result = song_queue.remove_by_index(position - 1)
-    if result == 1:
-        await ctx.send(f"Good decison! I don't like {song_queue[position - 1].title} too!")
+    print(position)
+    song = song_queue.remove_by_index(position - 1)
+    if song:
+        await ctx.send(f"Good decison! I don't like {song.title} too!")
     else:
         await ctx.send(f'Length of the queue is only {len(song_queue)}, therefore there is no position {position}')
 
@@ -234,12 +238,12 @@ async def display_favorites(ctx):
 
 
 @bot.command(name="removef", help="Removes the audio at specified position from the favorites")
-async def remove_from_favorites_by_position(ctx, n: int):
-    is_successful = favorites.remove_by_index(n - 1)
-    if is_successful:
-        await ctx.send(f"Good decison! I don't like {favorites[n - 1].title} too!")
+async def remove_from_favorites_by_position(ctx, position=len(favorites)):
+    song = favorites.remove_by_index(position - 1)
+    if song:
+        await ctx.send(f"Good decison! I don't like {song.title} too!")
     else:
-        await ctx.send(f'Length of the favorites is only {len(favorites)}, therefore there is no position {n}')
+        await ctx.send(f'Length of the favorites is only {len(favorites)}, therefore there is no position {position}')
 
 
 # endregion
@@ -259,7 +263,7 @@ async def display_current_song(ctx):
 async def resume_playing(ctx):
     voice = get(bot.voice_clients, guild=ctx.guild)
     if not voice.is_playing():
-        voice.resume_playing()
+        voice.resume()
         await ctx.send('Bot is resuming')
     else:
         await ctx.send("Nothing is playing")
@@ -269,7 +273,7 @@ async def resume_playing(ctx):
 async def pause_playing(ctx):
     voice = get(bot.voice_clients, guild=ctx.guild)
     if voice.is_playing():
-        voice.pause_playing()
+        voice.pause()
         await ctx.send('Bot has been paused')
     else:
         await ctx.send("Nothing is playing")
@@ -299,7 +303,9 @@ async def replay_current_song(ctx):
 
 # region shortcuts
 @bot.command(name="instant", help="Plays the audio instantly")
-async def play_instantly(ctx):
+async def play_instantly(ctx, request=None):
+    if request:
+        ctx.message.content = request
     await enqueue(ctx)
     if song_queue:
         await move_song_in_queue(ctx)
@@ -353,8 +359,18 @@ async def replace_song_with_similar_one(ctx, n=0):
     else:
         song_queue.replace(n - 1, new_song)
 
-    # replace in favs if it is there
-    favorites.replace(old_song, new_song)
+    # replace in favorites if it is there
+    song_was_in_favorites = favorites.replace(old_song, new_song)
+    if song_was_in_favorites:
+        await ctx.send(f"Replacing '{old_song.title}' with '{new_song.title}' in favorites")
+
+
+@bot.command(name="exit", help="Saves changes and terminates the bot")
+async def save_changes_and_terminate(ctx):
+    await ctx.send("Saving changes to the favorites...")
+    favorites.save()
+    await ctx.send("Bye!")
+    sys.exit()
 
 
 @bot.event

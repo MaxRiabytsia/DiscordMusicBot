@@ -5,6 +5,12 @@ class SongList:
     def __init__(self):
         self._song_list = []
 
+    def __bool__(self):
+        return self._song_list != []
+
+    def __str__(self):
+        return ", ".join([str(song) for song in self._song_list])
+
     def __iter__(self):
         self.__current = 0
         return self
@@ -36,8 +42,8 @@ class SongList:
 
     def remove_by_index(self, index):
         if len(self._song_list) >= index >= 0:
-            self._song_list.pop(index)
-            return 1
+            song = self._song_list.pop(index)
+            return song
         return 0
 
     def remove_by_url(self, url):

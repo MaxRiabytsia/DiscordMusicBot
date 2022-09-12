@@ -17,9 +17,6 @@ class Favorites(SongList):
         for i, row in self.__favorites_df.iterrows():
             super().append(Song(row.url, row.title))
 
-    def __bool__(self):
-        return self._song_list
-
     def append(self, song):
         if song not in self._song_list:
             super().append(song)
@@ -27,11 +24,10 @@ class Favorites(SongList):
         return 0
 
     def save(self):
+        new_favorites_df = pd.DataFrame(columns=['url', 'title'])
         for song in self._song_list:
-            if song.url not in self.__favorites_df.url.unique():
-                self.__favorites_df.loc[self.__favorites_df.shape[0]] = pd.Series({'url': song.url,
-                                                                                   'title': song.title})
-        self.__favorites_df.to_csv("data/favs.csv", index=False)
+            new_favorites_df.loc[new_favorites_df.shape[0]] = pd.Series({'url': song.url, 'title': song.title})
+        new_favorites_df.to_csv("data/favs.csv", index=False)
 
     def get_random_sample(self, sample_size):
         if 0 < sample_size < len(self._song_list):
