@@ -1,6 +1,3 @@
-import asyncio
-import time
-
 from discord.ext import commands, tasks
 from discord.utils import get
 from discord import FFmpegPCMAudio
@@ -171,10 +168,9 @@ async def move_song_in_queue(ctx, position_from=len(song_queue), position_to=1):
                            f"We don't need to rush with listening '{song_queue[position_to - 1].title}'!")
 
 
-# TODO default doesnt work
 @bot.command(name="remove", help="Removes the audio at specified position from the queue")
-async def remove_song_from_queue_by_position(ctx, position=len(song_queue)):
-    print(position)
+async def remove_song_from_queue_by_position(ctx, position=None):
+    position = position if position else len(song_queue)
     song = song_queue.remove_by_index(position - 1)
     if song:
         await ctx.send(f"Good decison! I don't like {song.title} too!")
