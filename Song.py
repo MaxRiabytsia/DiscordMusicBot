@@ -19,11 +19,30 @@ class Song:
             return self.title
         return self.url
 
+    @staticmethod
+    def __get_query_for_official_video(query):
+        # removing everything in parentheses because
+        # usually there is info that makes quality worse
+        # for example "Scorpions - Wind of Change (live from Berlin 1987)"
+        if '(' in query and ')' in query:
+            open_index = query.find('(')
+            close_index = query.find(')')
+            query = query[:open_index] + query[close_index + 1:]
+
+        if '[' in query and ']' in query:
+            open_index = query.find('[')
+            close_index = query.find(']')
+            query = query[:open_index] + query[close_index + 1:]
+
+        return query + " official"
+
     @classmethod
     def from_query(cls, query, video_id=0):
         """
         Gets the url of the first video found on YouTube after searching 'query'
         """
+        query = cls.__get_query_for_official_video(query)
+
         # composing url
         search_request = query.lower().replace(' ', '+').replace('–', '-').replace('\n', '')
         # making requests in ukrainian and russian work
