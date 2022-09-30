@@ -169,7 +169,7 @@ async def move_song_in_queue(ctx, position_from=len(song_queue), position_to=1):
 
 
 @bot.command(name="remove", help="Removes the audio at specified position from the queue")
-async def remove_song_from_queue_by_position(ctx, position=None):
+async def remove_song_from_queue_by_position(ctx, position: int):
     position = position if position else len(song_queue)
     song = song_queue.remove_by_index(position - 1)
     if song:
